@@ -6,6 +6,9 @@ import scipy.fft as sp
 import matplotlib.pyplot as plt
 from pathlib import Path
 import re
+import fastparquet
+import pyarrow 
+import os
 
 
 
@@ -61,6 +64,55 @@ def process_binary_to_csv(temp_file_path, count_to=None, verbose=True):
 
     return df
 
+def process_binary_to_csv_chunked(temp_file_path, count_to=None, verbose=True, chunk_size=100000):
+    """
+    Reads a large .emd file in chunks and saves timestamp and adc_value as CSV incrementally.
+    """
+    temp_file_path = Path(temp_file_path)
+    filename_csv = temp_file_path.with_suffix(".csv")  # replace .emd with .csv
+
+    if filename_csv.exists():
+        if verbose:
+            print(f"CSV already exists. Loading {filename_csv}...")
+        return pd.read_csv(filename_csv)
+
+    if verbose:
+        print(f"Processing {temp_file_path} in chunks of {chunk_size}...")
+
+    t0 = None
+    counter = 0
+    header_written = False
+
+    with open(temp_file_path, "rb") as file, tqdm(total=count_to, disable=not verbose, desc="Processing Records") as pbar:
+        while True:
+            data = []
+            for _ in range(chunk_size):
+                data_bytes = file.read(8)
+                if not data_bytes or (count_to is not None and counter >= count_to):
+                    break
+                counter += 1
+                data_word = struct.unpack("<Q", data_bytes)[0]
+                timestamp = (data_word >> 24) & 0x3FFFFFFFFF
+                adc_value = data_word & 0xFFFFFF
+                if t0 is None:
+                    t0 = timestamp
+                adjusted_timestamp = timestamp * 0.1  # in microseconds
+                data.append({'timestamp': adjusted_timestamp, 'adc_value': adc_value})
+            if not data:
+                break
+            # remove last row of the chunk (optional, like your original)
+            data = data[:-1] if len(data) > 1 else data
+            df_chunk = pd.DataFrame(data)
+            df_chunk.to_csv(filename_csv, mode='a', index=False, header=not header_written)
+            header_written = True
+            pbar.update(len(data))
+
+    if verbose:
+        print(f"Saved CSV: {filename_csv}")
+
+    return pd.read_csv(filename_csv)
+
+
 def process_binary_to_parquet(temp_file_path, count_to=None, verbose=True):
     """
     Reads an .emd file and saves the extracted timestamp and adc_value as a Parquet file.
@@ -112,6 +164,111 @@ def process_binary_to_parquet(temp_file_path, count_to=None, verbose=True):
         print(f"Saved Parquet: {filename_parquet}")
 
     return df
+
+
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+def process_binary_to_parquet_3(
+    temp_file_path,
+    count_to=None,
+    verbose=True,
+    chunk_size=500000,
+):
+    """
+    Reads an .emd file and saves the extracted timestamp and adc_value as a Parquet file.
+    If the Parquet file already exists, loads it instead of regenerating.
+    Drops the last record (matches original behavior).
+    Returns the DataFrame.
+    """
+
+    temp_file_path = Path(temp_file_path)
+    filename_parquet = temp_file_path.with_suffix(".parquet")
+
+    if filename_parquet.exists():
+        if verbose:
+            print(f"Parquet already exists. Loading {filename_parquet}...")
+        return pd.read_parquet(filename_parquet)
+
+    if verbose:
+        print(f"Processing {temp_file_path}...")
+
+    writer = None
+    buffer = []
+    pending = None  # holds last record so we can drop it
+
+    with open(temp_file_path, "rb") as file:
+        counter = 0
+        total_records = int(count_to) if count_to is not None else None
+
+        with tqdm(total=total_records, disable=not verbose, desc="Processing Records") as pbar:
+            while True:
+                data_bytes = file.read(8)
+                if not data_bytes or (count_to is not None and counter >= count_to):
+                    break
+
+                counter += 1
+                data_word = struct.unpack("<Q", data_bytes)[0]
+
+                timestamp = ((data_word >> 24) & 0x3FFFFFFFFF) * 0.1
+                adc_value = data_word & 0xFFFFFF
+
+                current = (timestamp, adc_value)
+
+                if pending is not None:
+                    buffer.append(pending)
+
+                pending = current
+                pbar.update(1)
+
+                if len(buffer) >= chunk_size:
+                    df = pd.DataFrame(buffer, columns=["timestamp", "adc_value"])
+                    table = pa.Table.from_pandas(df, preserve_index=False)
+
+                    if writer is None:
+                        writer = pq.ParquetWriter(filename_parquet, table.schema)
+
+                    writer.write_table(table)
+                    buffer.clear()
+
+    # write remaining buffered rows (but NOT `pending`)
+    if buffer:
+        df = pd.DataFrame(buffer, columns=["timestamp", "adc_value"])
+        table = pa.Table.from_pandas(df, preserve_index=False)
+
+        if writer is None:
+            writer = pq.ParquetWriter(filename_parquet, table.schema)
+
+        writer.write_table(table)
+
+    if writer:
+        writer.close()
+
+    if verbose:
+        print(f"Saved Parquet: {filename_parquet}")
+
+    return pd.read_parquet(filename_parquet)
+
+
+def csv_to_parquet(csv_path, overwrite=False):
+    csv_path = Path(csv_path)
+    parquet_path = csv_path.with_suffix(".parquet")
+
+    if parquet_path.exists() and not overwrite:
+        print(f"Parquet already exists: {parquet_path}")
+        return pd.read_parquet(parquet_path)
+
+    print(f"Reading CSV: {csv_path}")
+    df = pd.read_csv(csv_path)
+
+    print(f"Writing Parquet: {parquet_path}")
+    df.to_parquet(parquet_path, index=False, engine="pyarrow")
+
+    return pd.read_parquet(parquet_path)
+
+
+
 
 import pandas as pd
 
@@ -233,22 +390,24 @@ def find_top_peaks(df_fft, n=10):
 
 
 def plot_with_peaks(df_fft, peaks=None):
-    plt.figure(figsize=(10,5))
-    plt.plot(df_fft["frequency"], df_fft["magnitude"], label="FFT")
+    fig, ax = plt.subplots(figsize=(16,4))
+    ax.plot(df_fft["frequency"], df_fft["magnitude"], label="FFT")
 
     if peaks is not None:
-        plt.scatter(peaks["frequency"], peaks["magnitude"], color="red", zorder=5, label="Peaks")
+        ax.scatter(peaks["frequency"], peaks["magnitude"], color="red", zorder=5, label="Peaks")
         # optionally annotate
         for _, row in peaks.iterrows():
-            plt.text(row["frequency"], row["magnitude"]*1.05, f'{row["frequency"]:.1f}', 
-                     rotation=45, ha='center', fontsize=8)
+            ax.text(row["frequency"], row["magnitude"]*1.05, f'{row["frequency"]:.1f}', 
+                    rotation=45, ha='center', fontsize=8)
 
-    plt.xlabel("Frequency [Hz]")
-    plt.ylabel("Amplitude")
-    plt.title("FFT with Peaks")
-    plt.legend()
+    ax.set_xlabel("Frequency [Hz]")
+    ax.set_ylabel("Amplitude")
+    ax.set_title("FFT with Peaks")
+    ax.legend()
     plt.tight_layout()
-    plt.show()
+
+    return fig, ax
+
 
 
 
@@ -272,17 +431,59 @@ def plot_df_range(df, x_col, y_col, x_min=None, x_max=None, title=None, xlabel=N
         mask &= df[x_col] >= x_min
     if x_max is not None:
         mask &= df[x_col] <= x_max
-    
-    plt.figure(figsize=(10,5))
-    plt.plot(df.loc[mask, x_col], df.loc[mask, y_col])
+
+    fig, ax = plt.subplots(figsize=(16,4))
+    ax.plot(df.loc[mask, x_col], df.loc[mask, y_col])
+
     if title:
-        plt.title(title)
+        ax.set_title(title)
     if xlabel:
-        plt.xlabel(xlabel)
+        ax.set_xlabel(xlabel)
     if ylabel:
-        plt.ylabel(ylabel)
+        ax.set_ylabel(ylabel)
+
     plt.tight_layout()
-    plt.show()
+    return fig, ax
+
+def plot_df_ranges(df, x_col, y_col, x_min=None, x_max=None, y_min=None, y_max=None, title=None, xlabel=None, ylabel=None):
+    """
+    Plots y_col vs x_col from df, limited to specified x and y axis ranges.
+    
+    Args:
+        df (pd.DataFrame): DataFrame containing the data.
+        x_col (str): column name for x-axis.
+        y_col (str): column name for y-axis.
+        x_min (float, optional): minimum x value to display.
+        x_max (float, optional): maximum x value to display.
+        y_min (float, optional): minimum y value to display.
+        y_max (float, optional): maximum y value to display.
+        title (str, optional): plot title.
+        xlabel (str, optional): x-axis label.
+        ylabel (str, optional): y-axis label.
+    """
+    mask = pd.Series(True, index=df.index)
+    if x_min is not None:
+        mask &= df[x_col] >= x_min
+    if x_max is not None:
+        mask &= df[x_col] <= x_max
+    if y_min is not None:
+        mask &= df[y_col] >= y_min
+    if y_max is not None:
+        mask &= df[y_col] <= y_max
+
+    fig, ax = plt.subplots(figsize=(10,5))
+    ax.plot(df.loc[mask, x_col], df.loc[mask, y_col])
+
+    if title:
+        ax.set_title(title)
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    if ylabel:
+        ax.set_ylabel(ylabel)
+
+    plt.tight_layout()
+    return fig, ax
+
 
 
 def rebin(df, factor):
@@ -461,12 +662,14 @@ def calculate_noise_metrics_from_single_df(df):
 
     total_power = np.sum(yf**2)
     low_power = np.sum(yf[xf < 1000]**2)
+    mid_power = np.sum(yf[(xf >= 1000) & (xf <= 10000)]**2)
     high_power = np.sum(yf[xf > 10000]**2)
     peak_frequency = xf[np.argmax(yf)]
 
     return pd.DataFrame([{
         'total_power': total_power,
         'low_power': low_power,
+        'mid_power': mid_power,
         'high_power': high_power,
         'peak_frequency': peak_frequency
     }])
@@ -496,4 +699,149 @@ def filter_df(df, ta, tb):
         filtered['timestamp'] = filtered['timestamp'] - filtered['timestamp'].iloc[0]
     
     return filtered
+
+
+def save_plot(fig, name, output_dir, save_outputs=True):
+    """
+    Save a matplotlib figure if saving is enabled.
+    
+    Args:
+        fig: matplotlib.figure.Figure object
+        name: filename without path
+        output_dir: path to save the plot
+        save_outputs: bool, whether to save or not
+    """
+    if save_outputs:
+        fig_path = os.path.join(output_dir, name)
+        fig.savefig(fig_path, bbox_inches="tight")
+
+
+
+
+
+# chopper specific
+
+def split_measurements_by_threshold(df, adc_threshold, id_col="meas_id"):
+    """
+    Add a measurement ID column to the DataFrame and drop separator rows.
+
+    Args:
+        df (pd.DataFrame): must contain 'adc_value'
+        adc_threshold (float): values above this mark a new measurement
+        id_col (str): name of the measurement ID column
+
+    Returns:
+        pd.DataFrame: the same DataFrame, modified in place
+    """
+    if "adc_value" not in df.columns:
+        raise ValueError("DataFrame must contain 'adc_value'")
+
+    # identify separators
+    is_sep = df["adc_value"] > adc_threshold
+
+    # assign measurement ids
+    df[id_col] = is_sep.cumsum()
+
+    # drop separator rows
+    df.drop(index=df[is_sep].index, inplace=True)
+
+    # clean index
+    df.reset_index(drop=True, inplace=True)
+
+    return df
+
+def split_measurements_by_time(df, measurement_us, time_col="timestamp", id_col="meas_id"):
+    """
+    Split a DataFrame into measurements of fixed duration in milliseconds.
+
+    Args:
+        df (pd.DataFrame): must contain the time_col
+        measurement_ms (float): measurement width in milliseconds
+        time_col (str): column containing the timestamp (assumed in µs)
+        id_col (str): name of the measurement ID column to create
+
+    Returns:
+        pd.DataFrame: the same DataFrame with a new measurement ID column
+    """
+    if time_col not in df.columns:
+        raise ValueError(f"DataFrame must contain '{time_col}' column")
+
+    # Convert measurement width to microseconds
+
+    # Assign measurement IDs based on integer division
+    df[id_col] = (df[time_col] // measurement_us).astype(int)
+
+    # Optional: reset index
+    df.reset_index(drop=True, inplace=True)
+
+    return df
+
+
+
+
+
+def shift_measurements_timestamps(df):
+    """
+    Shift timestamps in each measurement so the first timestamp is 0.
+    """
+    # get first timestamp per meas_id
+    t0 = df.groupby("meas_id")["timestamp"].transform("first")
+    
+    # subtract in one vectorized operation
+    df["timestamp"] -= t0
+    
+    return df
+
+def get_peak_timestamps(df):
+    """
+    For each measurement in df (excluding meas_id 0), get the timestamp of the highest adc_value.
+
+    Args:
+        df (pd.DataFrame): must have 'timestamp', 'adc_value', 'meas_id'
+
+    Returns:
+        pd.DataFrame: single-column DataFrame with peak timestamps
+    """
+    peak_times = []
+
+    for mid, dfi in df.groupby("meas_id"):
+        if mid == 0:
+            continue  # skip the first measurement
+
+        idx_max = dfi["adc_value"].idxmax()
+        peak_times.append(dfi.loc[idx_max, "timestamp"])
+
+    return pd.DataFrame({"peak_timestamp": peak_times})
+
+def get_two_peaks_per_measurement(df):
+    """
+    For each measurement (excluding meas_id 0), split it in half and get the timestamp
+    of the maximum adc_value in each half.
+
+    Args:
+        df (pd.DataFrame): must have 'timestamp', 'adc_value', 'meas_id'
+
+    Returns:
+        pd.DataFrame: single-column DataFrame with peak timestamps
+    """
+    peak_times = []
+
+    for mid, dfi in df.groupby("meas_id"):
+        if mid == 0:
+            continue  # skip first measurement
+
+        n = len(dfi)
+        half = n // 2
+
+        # first half
+        first_half = dfi.iloc[:half]
+        idx_max1 = first_half["adc_value"].idxmax()
+        peak_times.append(dfi.loc[idx_max1, "timestamp"])
+
+        # second half
+        second_half = dfi.iloc[half:]
+        idx_max2 = second_half["adc_value"].idxmax()
+        peak_times.append(dfi.loc[idx_max2, "timestamp"])
+
+    return pd.DataFrame({"peak_timestamp": peak_times})
 
