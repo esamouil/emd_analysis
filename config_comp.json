@@ -1,8 +1,9 @@
 {
     "entry_limit": null,
     "data_folder_path": "/home/esamouil/analysis/data_stor/local_commissioning_data/004_dream_cc_2026",
-    "single_file_name": "Z220126_IBM1_0003.txt",
+    "single_file_name_1": "Z210126_IBM0_0004.txt",
+    "single_file_name_2": "Z220126_IBM0_0004.txt",
     "timestamp_lim": 10000000.0,
     "FFT_rebin_width": 50,
-    "save_outputs": true
+    "save_outputs": false
 }
