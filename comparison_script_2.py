@@ -9,41 +9,6 @@ from pathlib import Path
 
 #%% Configuring plot style
 
-# plt.rcParams.update({
-#     # Font
-#     "font.family": "Nimbus Roman",
-#     "mathtext.rm": "Nimbus Roman",
-#     "font.size": 14,
-#     # Figure
-#     "figure.figsize": (6, 4),
-#     "figure.dpi": 100,
-#     # Lines and markers
-#     "lines.linewidth": 2,
-#     "lines.markersize": 6,
-#     # Axes labels and ticks
-#     "axes.labelsize": 14,
-#     "xtick.labelsize": 12,
-#     "ytick.labelsize": 12,
-#     # Grid
-#     "axes.grid": True,
-#     "grid.linestyle": "--",
-#     "grid.color": "gray",
-#     "grid.alpha": 0.7,
-#     # Legend
-#     "legend.fontsize": 12,
-#     # Error bars
-#     "errorbar.capsize": 4,
-#     # Boxplots
-#     "boxplot.flierprops.markersize": 4,
-#     "boxplot.meanprops.markersize": 4,
-#     #colour palette
-#     "axes.prop_cycle": plt.cycler(color=["#4c72b0",
-#      "#dd8452", "#55a868", "#c44e52", "#8172b3", "#937860"]
-# )
-# })
-
-
-
 plt.style.use('/home/esamouil/Downloads/pub_clean.mplstyle')
 
 
@@ -115,42 +80,7 @@ for k, v in info_2.items():
     print(f"{k}: {v}")
 print("========================================\n")
 
-#%% Get info from the metadata excel
 
-# Load the Excel with the info
-excel_path = "/home/esamouil/analysis/data_stor/local_commissioning_data/004_dream_cc_2026/logbook_Z_with_baselines.xlsx"  # replace with the actual path
-excel_df = pd.read_excel(excel_path)
-
-# Create a lookup dictionary: {filename: (actual_detector, boolean)}
-file_info_1 = {
-    row['filename']: (row['act.det'], bool(row['corr. needed']))
-    for _, row in excel_df.iterrows()
-}
-
-file_info_2 = {
-    row['filename']: (row['act.det'], bool(row['corr. needed']))
-    for _, row in excel_df.iterrows()
-}
-
-# Example: get the info for the current txt file
-current_file_1 = txt_files_1[0].name
-if current_file_1 in file_info_1:
-    actual_detector_1, cor_boolean_1 = file_info_1[current_file_1]
-    print(f"File: {current_file_1}")
-    print(f"Actual Detector: {actual_detector_1}")
-    print(f"Correction Boolean: {cor_boolean_1}")
-else:
-    print(f"No entry for {current_file_1} in Excel")
-
-# Example: get the info for the current txt file
-current_file_2 = txt_files_2[0].name
-if current_file_2 in file_info_2:
-    actual_detector_2, cor_boolean_2 = file_info_2[current_file_2]
-    print(f"File: {current_file_2}")
-    print(f"Actual Detector: {actual_detector_2}")
-    print(f"Correction Boolean: {cor_boolean_2}")
-else:
-    print(f"No entry for {current_file_2} in Excel")
 
 #%% File conversion and import to dataframe.
 print("=============== Data Import ===============")
@@ -235,31 +165,7 @@ print("Pre_Correction_Standard deviation:", std_val_2)
 print("=================================================================\n")
 
 
-#%% Normalize based on correction scale factor and TIA points
 
-# scale adc values
-scale_factor_1 = info_1["tia_summation_points"]
-if cor_boolean_1:  # from Excel lookup
-    scale_factor_1 *= 4
-
-df_1["adc_value"] = df_1["adc_value"] / scale_factor_1
-
-print(f"ADC values scaled by {scale_factor_1}")
-
-print(df_1.head())
-print(df_1.tail())
-
-# scale adc values
-scale_factor_2 = info_2["tia_summation_points"]
-if cor_boolean_2:  # from Excel lookup
-    scale_factor_2 *= 4
-
-df_2["adc_value"] = df_2["adc_value"] / scale_factor_2
-
-print(f"ADC values scaled by {scale_factor_2}")
-
-print(df_2.head())
-print(df_2.tail())
 
 # %%
 # calculate the baseline using some range
@@ -318,13 +224,13 @@ save_plot(fig, "shifted_by_baseline_comparison", output_dir, save_outputs)
 
 # %%
 # do fft
-fft_df_1 = fft_dataframe(df_1)
+fft_df_1,f_nyquist_1, delta_f_1 = fft_dataframe(df_1)
 print("=============== FFT Dataframe ===============")
 print(fft_df_1.head())
 print(fft_df_1.tail())
 print("=============================================\n")
 
-fft_df_2 = fft_dataframe(df_2)
+fft_df_2,f_nyquist_2,delta_f_2 = fft_dataframe(df_2)
 print("=============== FFT Dataframe ===============")
 print(fft_df_2.head())
 print(fft_df_2.tail())

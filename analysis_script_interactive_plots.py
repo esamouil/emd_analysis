@@ -6,6 +6,7 @@ import json
 import os
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly_pub_clean
 
 #%% Plot style configuration
 plt.style.use('/home/esamouil/Downloads/pub_clean.mplstyle')
@@ -28,31 +29,6 @@ txt_files = [folder / config["single_file_name"]]
 stem = txt_files[0].stem
 emd_files = list(folder.glob(f"{stem}*.emd"))
 
-#%% Saving outputs setup
-output_dir = os.path.join(config["data_folder_path"], emd_files[0].stem)
-
-if save_outputs:
-    if os.path.exists(output_dir):
-        import shutil
-        shutil.rmtree(output_dir)
-    os.makedirs(output_dir)
-
-if save_outputs:
-    log_file_path = os.path.join(output_dir, "analysis.log")
-    log_file = open(log_file_path, "w")
-    import sys
-
-    class Tee:
-        def __init__(self, *files):
-            self.files = files
-        def write(self, data):
-            for f in self.files:
-                f.write(data)
-        def flush(self):
-            for f in self.files:
-                f.flush()
-
-    sys.stdout = Tee(sys.__stdout__, log_file)
 
 #%% Print the file names 
 print("=============== Run ===============")
@@ -79,15 +55,22 @@ print(df.tail())
 print("========================================\n")
 
 #%%
-# Downsample for plotting (1 in 1000 points)
-df_sample = df.iloc[::100, :]
+# filter and Downsample for plotting (1 in 1000 points)
+t_min = 0   # µs
+t_max = 6e7   # µs
+
+df_range = df[(df["timestamp"] >= t_min) & (df["timestamp"] <= t_max)]
+
+# Downsample for plotting (1 in 100 points)
+df_sample = df_range.iloc[::1000, :]
 
 # Interactive raw plot
-fig = px.line(df_sample, x="timestamp", y="adc_value", title="Raw file")
+fig = px.line(df_sample, x="timestamp", y="adc_value", title="Raw file",template="pub_clean")
 fig.update_layout(
     xaxis_title="Timestamp (µs)",
     yaxis_title="ADC value",
 )
+fig.update_layout(width=1200, height=400)
 fig.add_annotation(
     xref="paper", yref="paper",
     x=0.95, y=0.95,
@@ -103,7 +86,7 @@ if save_outputs:
     fig.write_html(os.path.join(output_dir, "raw_file.html"))
 
 #%%
-df = filter_df(df, 0, config['timestamp_lim'])
+df = filter_df(df, 0, 1e6)
 df_sample = df.iloc[::1000, :]  # downsample filtered df
 print("=============== Filtered Data ===============")
 print(f"Timestamp Limit\t{config['timestamp_lim']}\tseconds")
@@ -125,7 +108,7 @@ print("===================================================\n")
 #%%
 # Plot shifted dataframe (downsample)
 df_sample = df.iloc[::1000, :]
-fig = px.line(df_sample, x="timestamp", y="adc_value", title="Shifted by baseline")
+fig = px.line(df_sample, x="timestamp", y="adc_value", title="Shifted by baseline",template="pub_clean")
 fig.update_layout(
     xaxis_title="Timestamp (µs)",
     yaxis_title="ADC value",
@@ -135,15 +118,15 @@ if save_outputs:
     fig.write_html(os.path.join(output_dir, "shifted_by_baseline.html"))
 
 # %%
-fft_df = fft_dataframe(df)
+fft_df, f_nyquist, delta_f = fft_dataframe(df)
 print("=============== FFT Dataframe ===============")
 print(fft_df.head())
 print(fft_df.tail())
 print("=============================================\n")
 
 #%%
-fft_sample = fft_df.iloc[::1000, :]
-fig = px.line(fft_sample, x="frequency", y="magnitude", title="FFT Dataframe")
+fft_sample = fft_df.iloc[::100, :]
+fig = px.line(fft_sample, x="frequency", y="magnitude", title="FFT Dataframe",template="pub_clean")
 fig.update_layout(
     xaxis_title="Frequency (Hz)",
     yaxis_title="Magnitude",
@@ -153,13 +136,13 @@ if save_outputs:
     fig.write_html(os.path.join(output_dir, "fft_dataframe.html"))
 
 # %%
-peaks = find_top_peaks(fft_df, n=10)
+peaks = detect_fft_peaks(fft_df, neighborhood=1000, top_n=10)
 print("=============== Top Peaks ===============")
 print(peaks)
 print("=========================================\n")
 
 #%%
-fig = px.line(fft_sample, x="frequency", y="magnitude", title="FFT with Peaks")
+fig = px.line(fft_df, x="frequency", y="magnitude", title="FFT with Peaks")
 fig.add_scatter(x=peaks['frequency'], y=peaks['magnitude'], mode='markers', name='Peaks')
 fig.update_layout(
     xaxis_title="Frequency (Hz)",
@@ -181,7 +164,7 @@ if save_outputs:
     fig.write_html(os.path.join(output_dir, "User_Range_fft_plot.html"))
 
 # %%
-fft_df_rebinned = rebin_by_width(fft_df, config['FFT_rebin_width'])
+fft_df_rebinned = rebin_by_width(fft_df, 10)
 fft_reb_sample = fft_df_rebinned.iloc[::1000, :]
 fig = px.line(fft_reb_sample, x="frequency", y="magnitude", title=f"Rebinned FFT ({config['FFT_rebin_width']} Hz bins)")
 fig.update_layout(
@@ -192,8 +175,9 @@ fig.show()
 if save_outputs:
     fig.write_html(os.path.join(output_dir, "rebinned_fft_plot.html"))
 
+
 # %%
-peaks_rebinned = find_top_peaks(fft_df_rebinned, n=10)
+peaks_rebinned = find_top_peaks_old(fft_df_rebinned, n=10)
 print("=============== Top Peaks (Rebinned) ===============")
 print(f"New bin width (in Hz):\t{config['FFT_rebin_width']}")
 print(peaks_rebinned)

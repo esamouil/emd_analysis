@@ -46,7 +46,7 @@ else :                      # if its 0 then its txt
 
 print(df.head())
 print(df.tail())
-#print(df.to_string())
+print(df.to_string())
 #%%
 # Downsample for plotting (1 in 1000 points)
 df_sample = df.iloc[::50, :]
@@ -101,5 +101,17 @@ fig.add_annotation(
 )
 
 fig.show()
+
+# %%
+import numpy as np
+
+# differences between consecutive timestamps (µs)
+dt = np.diff(df["timestamp"].values)
+
+# ignore zeros / weird negatives just in case
+dt = dt[dt > 0]
+
+print("Mean sampling interval (µs):", dt.mean())
+print("Std of sampling interval (µs):", dt.std())
 
 # %%

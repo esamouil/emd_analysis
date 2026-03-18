@@ -1,7 +1,7 @@
 from pathlib import Path
 
 # === CONFIG ===
-folder_path = Path("/home/esamouil/data_ess__/Local_CC_2025/001_odin_bms_cc_2025/ibm2")  # change this
+folder_path = Path("/home/esamouil/analysis/ODIN/001_odin_bms_cc_2025/ibm3")  # change this
 output_file = folder_path / "files.txt"
 
 # find all .txt and .emd files

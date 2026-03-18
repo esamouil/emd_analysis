@@ -9,39 +9,6 @@ from pathlib import Path
 
 #%%
 # # === Plot Style Config ===
-# plt.rcParams.update({
-#     # Font
-#     "font.family": "Nimbus Roman",
-#     "mathtext.rm": "Nimbus Roman",
-#     "font.size": 14,
-#     # Figure
-#     "figure.figsize": (6, 4),
-#     "figure.dpi": 100,
-#     # Lines and markers
-#     "lines.linewidth": 2,
-#     "lines.markersize": 6,
-#     # Axes labels and ticks
-#     "axes.labelsize": 14,
-#     "xtick.labelsize": 12,
-#     "ytick.labelsize": 12,
-#     # Grid
-#     "axes.grid": True,
-#     "grid.linestyle": "--",
-#     "grid.color": "gray",
-#     "grid.alpha": 0.7,
-#     # Legend
-#     "legend.fontsize": 12,
-#     # Error bars
-#     "errorbar.capsize": 4,
-#     # Boxplots
-#     "boxplot.flierprops.markersize": 4,
-#     "boxplot.meanprops.markersize": 4,
-#     #colour palette
-#     "axes.prop_cycle": plt.cycler(color=["#4c72b0",
-#      "#dd8452", "#55a868", "#c44e52", "#8172b3", "#937860"]
-# )
-# })
-
 plt.style.use('/home/esamouil/Downloads/pub_clean.mplstyle')
 
 #%% 
@@ -196,4 +163,51 @@ save_plot(fig, "histogram", output_dir, save_outputs)
 
 
 
+# %%
+#%% --- Baseline Correction and Concatenate First 10 Measurements ---
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Take first 10 measurements
+first10 = df[df["meas_id"].between(1, 10)]
+
+shifted_list = []
+
+for meas_id in range(1, 11):
+    meas = first10[first10["meas_id"] == meas_id].copy()
+    n = int(len(meas) * 0.05)  # first 5% of points
+    baseline = meas.iloc[:n]["adc_value"].mean()
+    meas["adc_value"] = meas["adc_value"] - baseline  # shift adc_value
+    shifted_list.append(meas[["timestamp", "adc_value"]])  # only keep needed columns
+
+# Combine into new dataframe
+baseline_df = pd.concat(shifted_list, ignore_index=True)
+
+# Optional: reset timestamp to start from zero for each measurement sequentially
+cumulative_time = 0
+timestamps = []
+for meas_id in range(1, 11):
+    meas = baseline_df.iloc[baseline_df["timestamp"].index[0] + (meas_id-1)*len(meas): baseline_df["timestamp"].index[0] + meas_id*len(meas)]
+    ts_shifted = meas["timestamp"] + cumulative_time
+    timestamps.append(ts_shifted)
+    cumulative_time += meas["timestamp"].iloc[-1]  # end of this measurement
+
+baseline_df["timestamp"] = pd.concat(timestamps, ignore_index=True)
+
+#%% --- Plot Baseline Corrected Measurements ---
+
+fig, ax = plt.subplots(figsize=(12,5))
+ax.plot(baseline_df["timestamp"], baseline_df["adc_value"])
+ax.set_xlabel("Timestamp [µs]")
+ax.set_ylabel("ADC Value (baseline shifted)")
+ax.set_title("First 10 Measurements, Baseline Corrected")
+plt.tight_layout()
+plt.show()
+# %%
+print(baseline_df.head())
+# %%
+parquet_file = os.path.join(output_dir, "baseline_corrected_first10.parquet")
+baseline_df.to_parquet(parquet_file, index=False)
+print(f"Saved baseline-corrected dataframe to {parquet_file}")
 # %%

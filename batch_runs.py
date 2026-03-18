@@ -3,9 +3,9 @@ import subprocess
 from pathlib import Path
 
 # Paths
-files_list = "/home/esamouil/analysis/data_stor/local_commissioning_data/004_dream_cc_2026/files.txt"
-config_file = "config.json"
-python_script = "analysis_script.py"
+files_list = "/home/esamouil/analysis/ODIN/001_odin_bms_cc_2025/ibm3/files.txt"
+config_file = "config_parquet_conversion.json"
+python_script = "parquet_conversion.py"
 
 # Read all txt filenames
 with open(files_list, "r") as f:

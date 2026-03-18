@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import os
 import json
 
+# obsolete, either to be deleted or edited
+
 #%% Files for comparison
 run_files = {
     "Run1": {

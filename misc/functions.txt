@@ -1,0 +1,18 @@
+ process_binary_to_csv(temp_file_path, count_to=None, verbose=True)
+
+        Takes file path to binary file, unpacks the binary, returns a dataframe with timestamps in microseconds and adc_value,
+        also makes a csv file. If file already excists, it justs loads the file.
+        The count_to can be set to the number of entries we want to retrieve.
+
+
+process_binary_to_parquet(temp_file_path, count_to=None, verbose=True)
+
+        Same as above, but instead of csv it saves the data in a parquet file.
+
+
+read_ascii_emd(file_path):
+
+        Reads a ASCII emd file, and keeps just the second and last column, timestamp and adc_value.
+        Returns dataframe with timestamp in microseconds and adc_value.
+
+

@@ -8,40 +8,7 @@ import os
 from pathlib import Path
 
 #%%
-# # === Plot Style Config ===
-# plt.rcParams.update({
-#     # Font
-#     "font.family": "Nimbus Roman",
-#     "mathtext.rm": "Nimbus Roman",
-#     "font.size": 14,
-#     # Figure
-#     "figure.figsize": (6, 4),
-#     "figure.dpi": 100,
-#     # Lines and markers
-#     "lines.linewidth": 2,
-#     "lines.markersize": 6,
-#     # Axes labels and ticks
-#     "axes.labelsize": 14,
-#     "xtick.labelsize": 12,
-#     "ytick.labelsize": 12,
-#     # Grid
-#     "axes.grid": True,
-#     "grid.linestyle": "--",
-#     "grid.color": "gray",
-#     "grid.alpha": 0.7,
-#     # Legend
-#     "legend.fontsize": 12,
-#     # Error bars
-#     "errorbar.capsize": 4,
-#     # Boxplots
-#     "boxplot.flierprops.markersize": 4,
-#     "boxplot.meanprops.markersize": 4,
-#     #colour palette
-#     "axes.prop_cycle": plt.cycler(color=["#4c72b0",
-#      "#dd8452", "#55a868", "#c44e52", "#8172b3", "#937860"]
-# )
-# })
-
+# === Plot Style Config ===
 plt.style.use('/home/esamouil/Downloads/pub_clean.mplstyle')
 
 #%% 
